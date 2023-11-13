@@ -1,11 +1,15 @@
-from typing import Literal
-from pynput import mouse, keyboard
-from pynput.keyboard import Key
-import pyautogui
 import threading
 from enum import Enum
+from pynput import mouse
+from pynput.keyboard import Key
+import pyautogui
+from actions import Action
 
-class WHICH_INPUT(Enum):
+from keymanager import KeyManager, KeySettings
+from listeners import Listeners
+
+
+class WhichInput(Enum):
     NONE = 0
     MOUSE = 1
     KEYBOARD = 2
@@ -13,23 +17,30 @@ class WHICH_INPUT(Enum):
 
 class AutoClicker:
     def __init__(self) -> None:
+        self.autoclick_thread = None
         self.clicking = False
         self.stop_event = threading.Event()
-        
-        self.quit_key = keyboard.Key.end
+
         self.input_key = None
-        self.which_input = WHICH_INPUT.NONE
-        # self._pause_time = 0
-        
-        self._toggle_key = None
-        
-        self.toggle_key = keyboard.Key.insert
+        self.which_input = WhichInput.NONE
+
         self.pause_time = 0.1
-    
+
+        self.listeners = Listeners(self.on_click, self.on_keyboard_press)
+        self.key_manager = KeyManager(on_quit=self.quit, on_toggle=self.toggle)
+
+        self._pause_time = 0
+        self.toggle_key_settings = KeySettings(
+            self.key_manager, Action.TOGGLE, Key.insert, "Кнопка кликера"
+        )
+        self.quit_key_settings = KeySettings(
+            self.key_manager, Action.QUIT, Key.end, "Кнопка выхода"
+        )
+
     @property
     def pause_time(self):
         return self._pause_time
-    
+
     @pause_time.setter
     def pause_time(self, new_time):
         if isinstance(new_time, (int, float)):
@@ -37,18 +48,6 @@ class AutoClicker:
             pyautogui.PAUSE = new_time
         else:
             raise ValueError("Pause time must be an int or float.")
-    
-    
-    @property
-    def toggle_key(self):
-        return self._toggle_key
-    
-    @toggle_key.setter
-    def toggle_key(self, new_key: Key):
-        if isinstance(new_key, Key):
-            self._toggle_key = new_key
-        else:
-            raise ValueError("Toggle key must be an Key.")
 
     def on_click(self, x, y, button, pressed):
         if pressed:
@@ -66,43 +65,39 @@ class AutoClicker:
                 pyautogui.middleClick(x, y)
 
     def on_keyboard_press(self, key):
-        if key == self.toggle_key:
-            self.clicking = not self.clicking
+        if self.key_manager.has_key(key):
+            self.key_manager.execute_key(key)
 
-            if self.clicking:
-                # Start autoclicking
-                self.stop_event.clear()
-                self.autoclick_thread = threading.Thread(target=self.autoclick)
-                self.autoclick_thread.start()
-            else:
-                # Stop autoclicking
-                self.stop_event.set()
-        elif key == self.quit_key:
-            self.stop()
-    
-    
+    def toggle(self):
+        self.clicking = not self.clicking
+
+        if self.clicking:
+            # Start autoclicking
+            self.stop_event.clear()
+            self.autoclick_thread = threading.Thread(target=self.autoclick)
+            self.autoclick_thread.start()
+        else:
+            # Stop autoclicking
+            self.stop_event.set()
+
+    def quit(self):
+        self.stop()
+
     def make_press(self, key):
         pass
 
     def start(self, console_log=False):
-        self.mouse_listener = mouse.Listener(on_click=self.on_click)
-        self.keyboard_listener = keyboard.Listener(on_press=self.on_keyboard_press)
-        
-        
         if console_log:
-            print(f"Кнопка кликера: {self.toggle_key}")
-            print(f"Кнопка выхода: {self.quit_key}")
-        
-        self.mouse_listener.start()
-        self.keyboard_listener.start()
+            print(
+                f"{self.toggle_key_settings.display_name}: {self.toggle_key_settings.key}"
+            )
+        print(f"{self.quit_key_settings.display_name}: {self.quit_key_settings.key}")
 
-        self.mouse_listener.join()
-        self.keyboard_listener.join()
-    
-    
+        self.listeners.start()
+
     def stop(self):
-        self.mouse_listener.stop()
-        self.keyboard_listener.stop()
+        self.listeners.stop()
+
 
 if __name__ == "__main__":
     ac = AutoClicker()
