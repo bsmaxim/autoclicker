@@ -1,13 +1,15 @@
 import threading
 from enum import Enum
 from pynput import mouse
-from pynput.keyboard import Key
+from pynput.keyboard import Key, KeyCode, Controller
 import pyautogui
 from actions import Action
 
 from keymanager import KeyManager, KeySettings
 from listeners import Listeners
 
+
+keyboard = Controller()
 
 class WhichInput(Enum):
     NONE = 0
@@ -17,19 +19,18 @@ class WhichInput(Enum):
 
 class AutoClicker:
     def __init__(self) -> None:
+        self.active = False
+
         self.autoclick_thread = None
-        self.clicking = False
         self.stop_event = threading.Event()
 
         self.input_key = None
         self.which_input = WhichInput.NONE
 
-        self.pause_time = 0.1
-
-        self.listeners = Listeners(self.on_click, self.on_keyboard_press)
+        self.listeners = Listeners(self.on_click, self.on_press)
         self.key_manager = KeyManager(on_quit=self.quit, on_toggle=self.toggle)
 
-        self._pause_time = 0
+        self.pause_time = 0.1
         self.toggle_key_settings = KeySettings(
             self.key_manager, Action.TOGGLE, Key.insert, "Кнопка кликера"
         )
@@ -49,36 +50,45 @@ class AutoClicker:
         else:
             raise ValueError("Pause time must be an int or float.")
 
+    def autoclick(self):
+        match self.which_input:
+            case WhichInput.MOUSE:
+                # x, y = pyautogui.position()
+                while self.active:
+                    match self.input_key:
+                        case mouse.Button.left:
+                            pyautogui.click()
+                        case mouse.Button.right:
+                            pyautogui.rightClick()
+                        case mouse.Button.middle:
+                            pyautogui.middleClick()
+            case WhichInput.KEYBOARD:
+                print(f"{type(self.input_key)} {self.input_key}")
+                while self.active:
+                    keyboard.press(self.input_key)
+            case WhichInput.NONE:
+                print("No key pressed")
+
     def on_click(self, x, y, button, pressed):
         if pressed:
             print(f"Mouse button {button} clicked at ({x}, {y})")
             self.input_key = button
+            self.which_input = WhichInput.MOUSE
 
-    def autoclick(self):
-        while self.clicking and not self.stop_event.is_set():
-            x, y = pyautogui.position()
-            if self.input_key == mouse.Button.left:
-                pyautogui.click()
-            elif self.input_key == mouse.Button.right:
-                pyautogui.rightClick(x, y)
-            elif self.input_key == mouse.Button.middle:
-                pyautogui.middleClick(x, y)
-
-    def on_keyboard_press(self, key):
+    def on_press(self, key: (Key | KeyCode | None)):
         if self.key_manager.has_key(key):
             self.key_manager.execute_key(key)
+        else:
+            self.input_key = key
+            self.which_input = WhichInput.KEYBOARD
+            print(f"{key} pressed")
 
     def toggle(self):
-        self.clicking = not self.clicking
+        self.active = not self.active
 
-        if self.clicking:
-            # Start autoclicking
-            self.stop_event.clear()
+        if self.active:
             self.autoclick_thread = threading.Thread(target=self.autoclick)
             self.autoclick_thread.start()
-        else:
-            # Stop autoclicking
-            self.stop_event.set()
 
     def quit(self):
         self.stop()
